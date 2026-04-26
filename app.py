@@ -136,16 +136,49 @@ def make_zip(store: dict) -> bytes:
 
 
 def make_report_excel(results: list) -> bytes:
-    rows = [
-        {
-            "Folder":   r["folder"],
-            "Filename": r.get("saved_as", ""),
-            "URL":      r["url"],
-            "Status":   "Success" if r["ok"] else "Failed",
-            "Error":    r.get("error", ""),
-        }
-        for r in results
-    ]
+    """
+    Build a WIDE report — one row per folder.
+    Columns: Folder | URL 1 | URL 1 Status | URL 2 | URL 2 Status | ...
+    The column names come from the original Excel column names (col_name).
+    """
+    # Group results by folder, preserving insertion order
+    from collections import defaultdict, OrderedDict
+    folder_data = OrderedDict()   # folder -> list of result dicts in col order
+
+    # Collect all unique col_names in the order they appear
+    col_names_seen = []
+    col_names_set  = set()
+
+    for r in results:
+        folder   = r["folder"]
+        col_name = r.get("col_name", "URL")
+
+        if folder not in folder_data:
+            folder_data[folder] = {}
+        folder_data[folder][col_name] = r   # map col_name -> result
+
+        if col_name not in col_names_set:
+            col_names_seen.append(col_name)
+            col_names_set.add(col_name)
+
+    # Build rows
+    rows = []
+    for folder, col_map in folder_data.items():
+        row = {"Folder": folder}
+        for col_name in col_names_seen:
+            r = col_map.get(col_name)
+            if r:
+                row[col_name]                  = r["url"]
+                row[f"{col_name} Status"]      = "✅ Success" if r["ok"] else "❌ Failed"
+                row[f"{col_name} Saved As"]    = r.get("saved_as", "")
+                if not r["ok"]:
+                    row[f"{col_name} Error"]   = r.get("error", "")
+            else:
+                row[col_name]                  = ""
+                row[f"{col_name} Status"]      = "—"
+                row[f"{col_name} Saved As"]    = ""
+        rows.append(row)
+
     buf = io.BytesIO()
     pd.DataFrame(rows).to_excel(buf, index=False)
     buf.seek(0)
@@ -164,8 +197,12 @@ def parse_tasks(df: pd.DataFrame) -> list:
         for col in link_cols:
             url = row[col]
             if isinstance(url, str) and url.strip().startswith(("http://", "https://")):
-                tasks.append({"folder": safe, "url": url.strip(),
-                               "filename": get_filename_from_url(url.strip())})
+                tasks.append({
+                    "folder":   safe,
+                    "url":      url.strip(),
+                    "filename": get_filename_from_url(url.strip()),
+                    "col_name": str(col),   # ← store which URL column this came from
+                })
     return tasks
 
 
@@ -323,6 +360,7 @@ with right:
                 results.append({
                     "folder":   task["folder"],
                     "url":      task["url"],
+                    "col_name": task.get("col_name", "URL"),
                     "saved_as": key.split("/", 1)[-1] if key else task["filename"],
                     "ok":       ok,
                     "error":    err or "",
