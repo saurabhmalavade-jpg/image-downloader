@@ -220,7 +220,7 @@ for k, v in {
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.markdown("## 🖼️ Image Downloader")
+st.markdown("## 🖼️ Image Downloader- OTTO")
 st.markdown("Upload your Excel file → preview → download all images as a ZIP.")
 st.divider()
 
